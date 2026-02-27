@@ -91,6 +91,23 @@ func (h *Handler) handleCreateImagePost(ctx context.Context, args map[string]int
 		return h.errorResponse(fmt.Sprintf("Failed to create image post: %v", err)), nil
 	}
 
+	// Process optional media_files
+	var mediaPaths map[string]string
+	if mediaFilesRaw, ok := args["media_files"].([]interface{}); ok && len(mediaFilesRaw) > 0 {
+		mediaPaths = make(map[string]string)
+		for _, mf := range mediaFilesRaw {
+			sourcePath, ok := mf.(string)
+			if !ok || sourcePath == "" {
+				continue
+			}
+			relativePath, err := h.postSvc.AddMedia(p.ID, sourcePath)
+			if err != nil {
+				return h.errorResponse(fmt.Sprintf("Failed to add media file %s: %v", sourcePath, err)), nil
+			}
+			mediaPaths[sourcePath] = relativePath
+		}
+	}
+
 	result := map[string]interface{}{
 		"status":     "succeeded",
 		"post_id":    p.ID,
@@ -100,6 +117,10 @@ func (h *Handler) handleCreateImagePost(ctx context.Context, args map[string]int
 		"file_path":  h.postSvc.GetHTMLPath(p.ID),
 		"created_at": p.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 		"updated_at": p.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+	}
+
+	if len(mediaPaths) > 0 {
+		result["media_paths"] = mediaPaths
 	}
 
 	return h.successResponse(result), nil

@@ -11,7 +11,7 @@ func (h *Handler) GetTools() []protocol.Tool {
 	return []protocol.Tool{
 		{
 			Name:        "create_image_post",
-			Description: "Create a new HTML image post with fixed canvas dimensions. The LLM generates HTML/CSS content that will be rendered at the specified width and height. Common sizes: 1080x1080 (Instagram square), 1080x1920 (Instagram story), 1200x628 (Facebook/LinkedIn), 1280x720 (YouTube thumbnail). The HTML should use Google Fonts via <link> tags for consistent rendering.",
+			Description: "Create a new HTML image post with fixed canvas dimensions. The LLM generates HTML/CSS content that will be rendered at the specified width and height. Common sizes: 1080x1080 (Instagram square), 1080x1920 (Instagram story), 1200x628 (Facebook/LinkedIn), 1280x720 (YouTube thumbnail). The HTML should use Google Fonts via <link> tags for consistent rendering. To include local or generated images (e.g., from AI image generation tools), pass their absolute file paths in media_files. Reference them in the HTML as media/filename.ext (e.g., <img src=\"media/photo.png\"> or background-image: url('media/landscape.jpg')).",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -21,7 +21,7 @@ func (h *Handler) GetTools() []protocol.Tool {
 					},
 					"html_content": {
 						"type": "string",
-						"description": "Full HTML/CSS content for the image. Use inline styles or <style> tags. The content will be rendered at the exact specified dimensions."
+						"description": "Full HTML/CSS content for the image. Use inline styles or <style> tags. The content will be rendered at the exact specified dimensions. Reference media files as media/filename.ext."
 					},
 					"width": {
 						"type": "integer",
@@ -30,6 +30,11 @@ func (h *Handler) GetTools() []protocol.Tool {
 					"height": {
 						"type": "integer",
 						"description": "Canvas height in pixels (e.g., 1080)"
+					},
+					"media_files": {
+						"type": "array",
+						"items": { "type": "string" },
+						"description": "Optional list of absolute file paths to copy into the post's media folder. Each file becomes available as media/filename.ext in the HTML."
 					}
 				},
 				"required": ["name", "html_content", "width", "height"]
