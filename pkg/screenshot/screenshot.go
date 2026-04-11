@@ -114,14 +114,17 @@ func (s *Screenshotter) TakeScreenshot(postDir string, width, height int, output
 	}
 
 	// Wait for chart rendering signal (document.title === 'ready')
-	// Times out after 5 seconds for non-chart posts or if signal is not set
+	// After signal fires, wait 2s for Chart.js/D3 canvas animations to complete.
+	// Chart.js default animation duration is 1000ms; 2s provides safe margin.
+	// Times out after 5 seconds for non-chart posts or if signal is not set.
 	waitPage := page.Timeout(5 * time.Second)
 	_, err = waitPage.Eval(`() => new Promise((resolve) => {
-		if (document.title === 'ready') return resolve();
+		function onReady() { setTimeout(resolve, 2000); }
+		if (document.title === 'ready') return onReady();
 		const titleEl = document.querySelector('title');
 		if (!titleEl) return resolve();
 		const observer = new MutationObserver(() => {
-			if (document.title === 'ready') { observer.disconnect(); resolve(); }
+			if (document.title === 'ready') { observer.disconnect(); onReady(); }
 		});
 		observer.observe(titleEl, { childList: true });
 	})`)
