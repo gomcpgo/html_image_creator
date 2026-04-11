@@ -27,6 +27,7 @@ type ScreenshotService interface {
 func NewHandler(cfg *config.Config, screenshotSvc ScreenshotService) *Handler {
 	store := storage.NewStorage(cfg.RootDir)
 	postSvc := post.NewService(store)
+	postSvc.SetLibsDir(config.GetLibsDir(cfg.RootDir))
 
 	return &Handler{
 		config:        cfg,
@@ -58,6 +59,10 @@ func (h *Handler) CallTool(ctx context.Context, req *protocol.CallToolRequest) (
 		return h.handleExportImage(ctx, req.Arguments)
 	case "add_media":
 		return h.handleAddMedia(ctx, req.Arguments)
+	case "create_chart":
+		return h.handleCreateChart(ctx, req.Arguments)
+	case "set_chart_data":
+		return h.handleSetChartData(ctx, req.Arguments)
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", req.Name)
 	}
@@ -261,6 +266,109 @@ func (h *Handler) handleAddMedia(ctx context.Context, args map[string]interface{
 		"status":        "succeeded",
 		"post_id":       postID,
 		"relative_path": relativePath,
+	}
+
+	return h.successResponse(result), nil
+}
+
+func (h *Handler) handleCreateChart(ctx context.Context, args map[string]interface{}) (*protocol.CallToolResponse, error) {
+	name, ok := args["name"].(string)
+	if !ok || name == "" {
+		return nil, fmt.Errorf("name is required and must be a string")
+	}
+
+	htmlContent, ok := args["html_content"].(string)
+	if !ok || htmlContent == "" {
+		return nil, fmt.Errorf("html_content is required and must be a string")
+	}
+
+	widthFloat, ok := args["width"].(float64)
+	if !ok {
+		return nil, fmt.Errorf("width is required and must be an integer")
+	}
+	width := int(widthFloat)
+
+	heightFloat, ok := args["height"].(float64)
+	if !ok {
+		return nil, fmt.Errorf("height is required and must be an integer")
+	}
+	height := int(heightFloat)
+
+	data, ok := args["data"].(string)
+	if !ok || data == "" {
+		return nil, fmt.Errorf("data is required and must be a string")
+	}
+
+	dataFormat, ok := args["data_format"].(string)
+	if !ok || dataFormat == "" {
+		return nil, fmt.Errorf("data_format is required and must be json or csv")
+	}
+
+	p, err := h.postSvc.CreateChart(name, htmlContent, width, height, data, dataFormat)
+	if err != nil {
+		return h.errorResponse(fmt.Sprintf("Failed to create chart: %v", err)), nil
+	}
+
+	// Process optional media_files
+	var mediaPaths map[string]string
+	if mediaFilesRaw, ok := args["media_files"].([]interface{}); ok && len(mediaFilesRaw) > 0 {
+		mediaPaths = make(map[string]string)
+		for _, mf := range mediaFilesRaw {
+			sourcePath, ok := mf.(string)
+			if !ok || sourcePath == "" {
+				continue
+			}
+			relativePath, err := h.postSvc.AddMedia(p.ID, sourcePath)
+			if err != nil {
+				return h.errorResponse(fmt.Sprintf("Failed to add media file %s: %v", sourcePath, err)), nil
+			}
+			mediaPaths[sourcePath] = relativePath
+		}
+	}
+
+	result := map[string]interface{}{
+		"status":         "succeeded",
+		"post_id":        p.ID,
+		"name":           p.Name,
+		"width":          p.Width,
+		"height":         p.Height,
+		"has_chart_data": true,
+		"data_format":    dataFormat,
+		"file_path":      h.postSvc.GetHTMLPath(p.ID),
+		"created_at":     p.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		"updated_at":     p.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
+	}
+
+	if len(mediaPaths) > 0 {
+		result["media_paths"] = mediaPaths
+	}
+
+	return h.successResponse(result), nil
+}
+
+func (h *Handler) handleSetChartData(ctx context.Context, args map[string]interface{}) (*protocol.CallToolResponse, error) {
+	postID, ok := args["post_id"].(string)
+	if !ok || postID == "" {
+		return nil, fmt.Errorf("post_id is required and must be a string")
+	}
+
+	data, ok := args["data"].(string)
+	if !ok || data == "" {
+		return nil, fmt.Errorf("data is required and must be a string")
+	}
+
+	dataFormat, ok := args["data_format"].(string)
+	if !ok || dataFormat == "" {
+		return nil, fmt.Errorf("data_format is required and must be json or csv")
+	}
+
+	if err := h.postSvc.SetChartData(postID, data, dataFormat); err != nil {
+		return h.errorResponse(fmt.Sprintf("Failed to set chart data: %v", err)), nil
+	}
+
+	result := map[string]interface{}{
+		"status":  "succeeded",
+		"post_id": postID,
 	}
 
 	return h.successResponse(result), nil

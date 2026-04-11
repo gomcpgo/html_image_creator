@@ -8,6 +8,7 @@ import (
 // Service provides image post operations
 type Service struct {
 	storage StorageInterface
+	libsDir string
 }
 
 // StorageInterface defines the storage operations needed by the service
@@ -21,6 +22,10 @@ type StorageInterface interface {
 	DeletePost(postID string) error
 	GetPostPath(postID string) string
 	GetHTMLPath(postID string) string
+	WriteChartData(postID string, data string, format string) error
+	ReadChartData(postID string) (string, error)
+	UpdateMetadata(postID string, meta *Metadata) error
+	LinkLibs(postID string, libsDir string) error
 }
 
 // NewService creates a new post service
@@ -28,6 +33,11 @@ func NewService(storage StorageInterface) *Service {
 	return &Service{
 		storage: storage,
 	}
+}
+
+// SetLibsDir sets the shared chart libraries directory path
+func (s *Service) SetLibsDir(libsDir string) {
+	s.libsDir = libsDir
 }
 
 // CreatePost creates a new image post with fixed canvas dimensions
@@ -135,6 +145,93 @@ func (s *Service) DeletePost(postID string) error {
 
 	if err := s.storage.DeletePost(postID); err != nil {
 		return fmt.Errorf("failed to delete post: %w", err)
+	}
+
+	return nil
+}
+
+// CreateChart creates a new chart post with separate data storage
+func (s *Service) CreateChart(name, htmlContent string, width, height int, data, dataFormat string) (*ImagePost, error) {
+	if data == "" {
+		return nil, fmt.Errorf("chart data cannot be empty")
+	}
+	if dataFormat != "json" && dataFormat != "csv" {
+		return nil, fmt.Errorf("invalid data format %q: must be json or csv", dataFormat)
+	}
+
+	p, err := s.CreatePost(name, htmlContent, width, height)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.storage.WriteChartData(p.ID, data, dataFormat); err != nil {
+		return nil, fmt.Errorf("failed to write chart data: %w", err)
+	}
+
+	// Symlink shared libs into the post directory for artifact server access
+	if s.libsDir != "" {
+		if err := s.storage.LinkLibs(p.ID, s.libsDir); err != nil {
+			// Non-fatal: chart will still work via CDN fallback during export
+			fmt.Printf("Warning: failed to link libs: %v\n", err)
+		}
+	}
+
+	// Update metadata with chart flags
+	meta := &Metadata{
+		Name:         p.Name,
+		Width:        p.Width,
+		Height:       p.Height,
+		HasChartData: true,
+		DataFormat:   dataFormat,
+		CreatedAt:    p.CreatedAt,
+		UpdatedAt:    p.UpdatedAt,
+	}
+	if err := s.storage.UpdateMetadata(p.ID, meta); err != nil {
+		return nil, fmt.Errorf("failed to update metadata: %w", err)
+	}
+
+	return p, nil
+}
+
+// SetChartData updates the data for an existing chart post
+func (s *Service) SetChartData(postID, data, dataFormat string) error {
+	if !ValidatePostID(postID) {
+		return fmt.Errorf("invalid post ID: %s", postID)
+	}
+	if data == "" {
+		return fmt.Errorf("chart data cannot be empty")
+	}
+	if dataFormat != "json" && dataFormat != "csv" {
+		return fmt.Errorf("invalid data format %q: must be json or csv", dataFormat)
+	}
+
+	p, err := s.storage.GetPost(postID)
+	if err != nil {
+		return fmt.Errorf("failed to get post: %w", err)
+	}
+
+	// Read existing metadata to check if this is a chart post
+	// We check by trying to read existing chart data
+	if _, err := s.storage.ReadChartData(postID); err != nil {
+		return fmt.Errorf("post %s is not a chart post: no existing chart data", postID)
+	}
+
+	if err := s.storage.WriteChartData(postID, data, dataFormat); err != nil {
+		return fmt.Errorf("failed to write chart data: %w", err)
+	}
+
+	now := time.Now()
+	meta := &Metadata{
+		Name:         p.Name,
+		Width:        p.Width,
+		Height:       p.Height,
+		HasChartData: true,
+		DataFormat:   dataFormat,
+		CreatedAt:    p.CreatedAt,
+		UpdatedAt:    now,
+	}
+	if err := s.storage.UpdateMetadata(postID, meta); err != nil {
+		return fmt.Errorf("failed to update metadata: %w", err)
 	}
 
 	return nil

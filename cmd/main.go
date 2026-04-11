@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io/fs"
 	"log"
+	"os"
 
 	"html_image_creator/pkg/config"
 	mcpHandler "html_image_creator/pkg/handler"
@@ -15,6 +18,9 @@ import (
 	"github.com/gomcpgo/mcp/pkg/protocol"
 	"github.com/gomcpgo/mcp/pkg/server"
 )
+
+//go:embed libs/*
+var embeddedLibsDir embed.FS
 
 func main() {
 	// Define terminal mode flags
@@ -30,6 +36,10 @@ func main() {
 		exportOutput string
 		addMedia     string
 		mediaPath    string
+		createChart  string
+		chartData    string
+		dataFormat   string
+		setData      string
 	)
 
 	flag.StringVar(&createPost, "create", "", "Create a new image post with the specified name")
@@ -43,6 +53,10 @@ func main() {
 	flag.StringVar(&exportOutput, "output", "", "Output path for export")
 	flag.StringVar(&addMedia, "add-media", "", "Add media to post (specify post ID)")
 	flag.StringVar(&mediaPath, "media-path", "", "Path to media file")
+	flag.StringVar(&createChart, "create-chart", "", "Create a new chart with the specified name")
+	flag.StringVar(&chartData, "data", "", "Chart data (JSON or CSV string)")
+	flag.StringVar(&dataFormat, "data-format", "json", "Data format: json or csv")
+	flag.StringVar(&setData, "set-data", "", "Set chart data for post ID")
 	flag.Parse()
 
 	// Load configuration
@@ -51,8 +65,19 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
+	// Ensure bundled JS libraries are available
+	libsFS, err := fs.Sub(embeddedLibsDir, "libs")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to access embedded libs: %v\n", err)
+	} else {
+		if err := config.EnsureLibs(cfg.RootDir, libsFS); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to install chart libs: %v\n", err)
+		}
+	}
+
 	// Create handler
-	screenshotSvc := screenshot.NewScreenshotter()
+	libsDir := config.GetLibsDir(cfg.RootDir)
+	screenshotSvc := screenshot.NewScreenshotter(libsDir)
 	h := mcpHandler.NewHandler(cfg, screenshotSvc)
 	ctx := context.Background()
 
@@ -114,6 +139,39 @@ func main() {
 		runTerminalCommand(ctx, h, "add_media", map[string]interface{}{
 			"post_id":     addMedia,
 			"source_path": mediaPath,
+		})
+		return
+	}
+
+	if createChart != "" {
+		if htmlContent == "" {
+			log.Fatal("--html is required when creating a chart")
+		}
+		if chartData == "" {
+			log.Fatal("--data is required when creating a chart")
+		}
+		if width <= 0 || height <= 0 {
+			log.Fatal("--width and --height are required when creating a chart")
+		}
+		runTerminalCommand(ctx, h, "create_chart", map[string]interface{}{
+			"name":         createChart,
+			"html_content": htmlContent,
+			"width":        float64(width),
+			"height":       float64(height),
+			"data":         chartData,
+			"data_format":  dataFormat,
+		})
+		return
+	}
+
+	if setData != "" {
+		if chartData == "" {
+			log.Fatal("--data is required when setting chart data")
+		}
+		runTerminalCommand(ctx, h, "set_chart_data", map[string]interface{}{
+			"post_id":     setData,
+			"data":        chartData,
+			"data_format": dataFormat,
 		})
 		return
 	}

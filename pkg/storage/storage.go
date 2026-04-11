@@ -227,6 +227,72 @@ func (s *Storage) writeMetadata(postID string, metadata *post.Metadata) error {
 	return nil
 }
 
+// WriteChartData writes chart data to a file in the post directory
+func (s *Storage) WriteChartData(postID string, data string, format string) error {
+	if !s.PostExists(postID) {
+		return fmt.Errorf("post %s does not exist", postID)
+	}
+	if format != "json" && format != "csv" {
+		return fmt.Errorf("invalid data format %q: must be json or csv", format)
+	}
+
+	filename := "data." + format
+	dataPath := filepath.Join(s.GetPostPath(postID), filename)
+	if err := os.WriteFile(dataPath, []byte(data), 0644); err != nil {
+		return fmt.Errorf("failed to write chart data: %w", err)
+	}
+	return nil
+}
+
+// ReadChartData reads chart data from the post directory (tries data.json then data.csv)
+func (s *Storage) ReadChartData(postID string) (string, error) {
+	if !s.PostExists(postID) {
+		return "", fmt.Errorf("post %s does not exist", postID)
+	}
+
+	postPath := s.GetPostPath(postID)
+	for _, ext := range []string{"json", "csv"} {
+		dataPath := filepath.Join(postPath, "data."+ext)
+		content, err := os.ReadFile(dataPath)
+		if err == nil {
+			return string(content), nil
+		}
+	}
+	return "", fmt.Errorf("no chart data found for post %s", postID)
+}
+
+// LinkLibs creates a symlink to the shared libs directory inside a post directory
+func (s *Storage) LinkLibs(postID string, libsDir string) error {
+	if !s.PostExists(postID) {
+		return fmt.Errorf("post %s does not exist", postID)
+	}
+	if libsDir == "" {
+		return nil // no libs dir configured, skip silently
+	}
+
+	// Check if libs source exists
+	if _, err := os.Stat(libsDir); err != nil {
+		return nil // libs dir doesn't exist yet, skip silently
+	}
+
+	linkPath := filepath.Join(s.GetPostPath(postID), "libs")
+
+	// Skip if already exists
+	if _, err := os.Lstat(linkPath); err == nil {
+		return nil
+	}
+
+	return os.Symlink(libsDir, linkPath)
+}
+
+// UpdateMetadata writes updated metadata for a post
+func (s *Storage) UpdateMetadata(postID string, meta *post.Metadata) error {
+	if !s.PostExists(postID) {
+		return fmt.Errorf("post %s does not exist", postID)
+	}
+	return s.writeMetadata(postID, meta)
+}
+
 func (s *Storage) readMetadata(postID string) (*post.Metadata, error) {
 	metadataPath := s.GetMetadataPath(postID)
 	data, err := os.ReadFile(metadataPath)

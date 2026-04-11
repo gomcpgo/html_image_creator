@@ -99,6 +99,69 @@ func (h *Handler) GetTools() []protocol.Tool {
 			}`),
 		},
 		{
+			Name:        "create_chart",
+			Description: "Create a data visualisation chart. The LLM generates HTML/JS using bundled chart libraries. Use <script src=\"libs/chart.min.js\"> for Chart.js or <script src=\"libs/d3.min.js\"> for D3. Load data via fetch('data.json') or fetch('data.csv'). Signal render completion by setting document.title = 'ready' after the chart finishes drawing. Common dimensions: 800x600 (standard), 1200x800 (presentation), 1080x1080 (square).",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"name": {
+						"type": "string",
+						"description": "Name of the chart"
+					},
+					"html_content": {
+						"type": "string",
+						"description": "Full HTML/JS content for the chart. Use bundled libraries via libs/chart.min.js or libs/d3.min.js. Load data with fetch('data.json') or fetch('data.csv'). Set document.title = 'ready' after chart renders."
+					},
+					"width": {
+						"type": "integer",
+						"description": "Canvas width in pixels (e.g., 800)"
+					},
+					"height": {
+						"type": "integer",
+						"description": "Canvas height in pixels (e.g., 600)"
+					},
+					"data": {
+						"type": "string",
+						"description": "Chart data as JSON array/object or CSV string"
+					},
+					"data_format": {
+						"type": "string",
+						"enum": ["json", "csv"],
+						"description": "Format of the data: json or csv"
+					},
+					"media_files": {
+						"type": "array",
+						"items": { "type": "string" },
+						"description": "Optional list of absolute file paths to copy into the post's media folder."
+					}
+				},
+				"required": ["name", "html_content", "width", "height", "data", "data_format"]
+			}`),
+		},
+		{
+			Name:        "set_chart_data",
+			Description: "Update the data for an existing chart post without changing the HTML template. After updating, call export_image to re-render with the new data.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"post_id": {
+						"type": "string",
+						"description": "The unique post ID of the chart"
+					},
+					"data": {
+						"type": "string",
+						"description": "New chart data as JSON array/object or CSV string"
+					},
+					"data_format": {
+						"type": "string",
+						"enum": ["json", "csv"],
+						"description": "Format of the data: json or csv"
+					}
+				},
+				"required": ["post_id", "data", "data_format"]
+			}`),
+		},
+		{
 			Name:        "add_media",
 			Description: "Add an image file to a post's media folder. Copies the file and returns the relative path to use in HTML (e.g., in <img src=\"media/photo.jpg\">).",
 			InputSchema: json.RawMessage(`{
