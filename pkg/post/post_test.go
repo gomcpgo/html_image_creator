@@ -102,6 +102,10 @@ func (m *mockStorage) UpdateMetadata(postID string, meta *Metadata) error {
 	return nil
 }
 
+func (m *mockStorage) LinkLibs(postID string, libsDir string) error {
+	return nil
+}
+
 func TestCreateChart(t *testing.T) {
 	store := newMockStorage()
 	svc := NewService(store)

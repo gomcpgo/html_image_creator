@@ -120,6 +120,55 @@ func TestReadChartData_NoData(t *testing.T) {
 	}
 }
 
+func TestLinkLibs(t *testing.T) {
+	s, tmpDir := setupTestStorage(t)
+	createTestPost(t, s, "test-chart-libs")
+
+	// Create a fake libs directory
+	libsDir := filepath.Join(tmpDir, "libs")
+	os.MkdirAll(libsDir, 0755)
+	os.WriteFile(filepath.Join(libsDir, "chart.min.js"), []byte("// chart.js"), 0644)
+
+	err := s.LinkLibs("test-chart-libs", libsDir)
+	if err != nil {
+		t.Fatalf("LinkLibs failed: %v", err)
+	}
+
+	// Verify symlink was created
+	linkPath := filepath.Join(tmpDir, "test-chart-libs", "libs")
+	target, err := os.Readlink(linkPath)
+	if err != nil {
+		t.Fatalf("symlink not created: %v", err)
+	}
+	if target != libsDir {
+		t.Errorf("symlink target mismatch: got %q, want %q", target, libsDir)
+	}
+
+	// Verify file is accessible through symlink
+	content, err := os.ReadFile(filepath.Join(linkPath, "chart.min.js"))
+	if err != nil {
+		t.Fatalf("cannot read through symlink: %v", err)
+	}
+	if string(content) != "// chart.js" {
+		t.Error("content mismatch through symlink")
+	}
+}
+
+func TestLinkLibs_Idempotent(t *testing.T) {
+	s, tmpDir := setupTestStorage(t)
+	createTestPost(t, s, "test-chart-idem")
+
+	libsDir := filepath.Join(tmpDir, "libs")
+	os.MkdirAll(libsDir, 0755)
+
+	// Call twice — should not error
+	s.LinkLibs("test-chart-idem", libsDir)
+	err := s.LinkLibs("test-chart-idem", libsDir)
+	if err != nil {
+		t.Fatalf("second LinkLibs should not fail: %v", err)
+	}
+}
+
 func TestUpdateMetadata(t *testing.T) {
 	s, tmpDir := setupTestStorage(t)
 	createTestPost(t, s, "test-meta-k1l2")

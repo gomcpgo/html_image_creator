@@ -261,6 +261,30 @@ func (s *Storage) ReadChartData(postID string) (string, error) {
 	return "", fmt.Errorf("no chart data found for post %s", postID)
 }
 
+// LinkLibs creates a symlink to the shared libs directory inside a post directory
+func (s *Storage) LinkLibs(postID string, libsDir string) error {
+	if !s.PostExists(postID) {
+		return fmt.Errorf("post %s does not exist", postID)
+	}
+	if libsDir == "" {
+		return nil // no libs dir configured, skip silently
+	}
+
+	// Check if libs source exists
+	if _, err := os.Stat(libsDir); err != nil {
+		return nil // libs dir doesn't exist yet, skip silently
+	}
+
+	linkPath := filepath.Join(s.GetPostPath(postID), "libs")
+
+	// Skip if already exists
+	if _, err := os.Lstat(linkPath); err == nil {
+		return nil
+	}
+
+	return os.Symlink(libsDir, linkPath)
+}
+
 // UpdateMetadata writes updated metadata for a post
 func (s *Storage) UpdateMetadata(postID string, meta *post.Metadata) error {
 	if !s.PostExists(postID) {

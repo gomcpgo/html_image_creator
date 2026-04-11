@@ -27,6 +27,7 @@ type ScreenshotService interface {
 func NewHandler(cfg *config.Config, screenshotSvc ScreenshotService) *Handler {
 	store := storage.NewStorage(cfg.RootDir)
 	postSvc := post.NewService(store)
+	postSvc.SetLibsDir(config.GetLibsDir(cfg.RootDir))
 
 	return &Handler{
 		config:        cfg,

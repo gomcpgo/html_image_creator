@@ -8,6 +8,7 @@ import (
 // Service provides image post operations
 type Service struct {
 	storage StorageInterface
+	libsDir string
 }
 
 // StorageInterface defines the storage operations needed by the service
@@ -24,6 +25,7 @@ type StorageInterface interface {
 	WriteChartData(postID string, data string, format string) error
 	ReadChartData(postID string) (string, error)
 	UpdateMetadata(postID string, meta *Metadata) error
+	LinkLibs(postID string, libsDir string) error
 }
 
 // NewService creates a new post service
@@ -31,6 +33,11 @@ func NewService(storage StorageInterface) *Service {
 	return &Service{
 		storage: storage,
 	}
+}
+
+// SetLibsDir sets the shared chart libraries directory path
+func (s *Service) SetLibsDir(libsDir string) {
+	s.libsDir = libsDir
 }
 
 // CreatePost creates a new image post with fixed canvas dimensions
@@ -159,6 +166,14 @@ func (s *Service) CreateChart(name, htmlContent string, width, height int, data,
 
 	if err := s.storage.WriteChartData(p.ID, data, dataFormat); err != nil {
 		return nil, fmt.Errorf("failed to write chart data: %w", err)
+	}
+
+	// Symlink shared libs into the post directory for artifact server access
+	if s.libsDir != "" {
+		if err := s.storage.LinkLibs(p.ID, s.libsDir); err != nil {
+			// Non-fatal: chart will still work via CDN fallback during export
+			fmt.Printf("Warning: failed to link libs: %v\n", err)
+		}
 	}
 
 	// Update metadata with chart flags
