@@ -31,3 +31,8 @@ func LoadConfig() (*Config, error) {
 		RootDir: rootDir,
 	}, nil
 }
+
+// GetLibsDir returns the path to the shared JS libraries directory
+func GetLibsDir(rootDir string) string {
+	return filepath.Join(rootDir, "libs")
+}

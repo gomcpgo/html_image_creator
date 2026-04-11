@@ -18,12 +18,14 @@ import (
 // Screenshotter handles taking screenshots of HTML posts via headless Chrome
 type Screenshotter struct {
 	chromeTimeout time.Duration
+	libsDir       string // shared directory for bundled JS libraries
 }
 
 // NewScreenshotter creates a new Screenshotter instance
-func NewScreenshotter() *Screenshotter {
+func NewScreenshotter(libsDir string) *Screenshotter {
 	return &Screenshotter{
 		chromeTimeout: 30 * time.Second,
+		libsDir:       libsDir,
 	}
 }
 
@@ -45,15 +47,19 @@ func (s *Screenshotter) TakeScreenshot(postDir string, width, height int, output
 	}
 	defer os.Remove(tmpHTMLPath)
 
-	// Start a temporary local HTTP server to serve the post directory
+	// Start a temporary local HTTP server to serve the post directory and shared libs
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return fmt.Errorf("failed to start temp server: %w", err)
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
 
-	fileServer := http.FileServer(http.Dir(postDir))
-	httpServer := &http.Server{Handler: fileServer}
+	mux := http.NewServeMux()
+	if s.libsDir != "" {
+		mux.Handle("/libs/", http.StripPrefix("/libs/", http.FileServer(http.Dir(s.libsDir))))
+	}
+	mux.Handle("/", http.FileServer(http.Dir(postDir)))
+	httpServer := &http.Server{Handler: mux}
 	go httpServer.Serve(listener)
 	defer httpServer.Close()
 
@@ -105,6 +111,22 @@ func (s *Screenshotter) TakeScreenshot(postDir string, width, height int, output
 	if err != nil {
 		// Non-fatal: continue even if fonts.ready fails
 		fmt.Printf("Warning: fonts.ready check failed: %v\n", err)
+	}
+
+	// Wait for chart rendering signal (document.title === 'ready')
+	// Times out after 5 seconds for non-chart posts or if signal is not set
+	waitPage := page.Timeout(5 * time.Second)
+	_, err = waitPage.Eval(`() => new Promise((resolve) => {
+		if (document.title === 'ready') return resolve();
+		const titleEl = document.querySelector('title');
+		if (!titleEl) return resolve();
+		const observer = new MutationObserver(() => {
+			if (document.title === 'ready') { observer.disconnect(); resolve(); }
+		});
+		observer.observe(titleEl, { childList: true });
+	})`)
+	if err != nil {
+		// Non-fatal: timeout means no chart signal, proceed with screenshot
 	}
 
 	// Take screenshot of the viewport

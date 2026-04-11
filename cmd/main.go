@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io/fs"
 	"log"
+	"os"
 
 	"html_image_creator/pkg/config"
 	mcpHandler "html_image_creator/pkg/handler"
@@ -15,6 +18,9 @@ import (
 	"github.com/gomcpgo/mcp/pkg/protocol"
 	"github.com/gomcpgo/mcp/pkg/server"
 )
+
+//go:embed libs/*
+var embeddedLibsDir embed.FS
 
 func main() {
 	// Define terminal mode flags
@@ -51,8 +57,19 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
+	// Ensure bundled JS libraries are available
+	libsFS, err := fs.Sub(embeddedLibsDir, "libs")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to access embedded libs: %v\n", err)
+	} else {
+		if err := config.EnsureLibs(cfg.RootDir, libsFS); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to install chart libs: %v\n", err)
+		}
+	}
+
 	// Create handler
-	screenshotSvc := screenshot.NewScreenshotter()
+	libsDir := config.GetLibsDir(cfg.RootDir)
+	screenshotSvc := screenshot.NewScreenshotter(libsDir)
 	h := mcpHandler.NewHandler(cfg, screenshotSvc)
 	ctx := context.Background()
 
