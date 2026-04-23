@@ -22,6 +22,9 @@ import (
 //go:embed libs/*
 var embeddedLibsDir embed.FS
 
+//go:embed icon.svg
+var iconSVG []byte
+
 func main() {
 	// Define terminal mode flags
 	var (
@@ -182,7 +185,9 @@ func main() {
 
 	srv := server.New(server.Options{
 		Name:     "html-image-creator",
+		Title:    "HTML Image Creator",
 		Version:  "1.0.0",
+		Icons:    protocol.IconFromSVG(iconSVG),
 		Registry: registry,
 	})
 
