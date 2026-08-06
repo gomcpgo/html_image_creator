@@ -43,6 +43,8 @@ func main() {
 		chartData    string
 		dataFormat   string
 		setData      string
+		renderFrames string
+		validateOnly bool
 	)
 
 	flag.StringVar(&createPost, "create", "", "Create a new image post with the specified name")
@@ -60,6 +62,8 @@ func main() {
 	flag.StringVar(&chartData, "data", "", "Chart data (JSON or CSV string)")
 	flag.StringVar(&dataFormat, "data-format", "json", "Data format: json or csv")
 	flag.StringVar(&setData, "set-data", "", "Set chart data for post ID")
+	flag.StringVar(&renderFrames, "render-frames", "", "Render frames from a spec JSON file (see docs/render-frames-spec.md)")
+	flag.BoolVar(&validateOnly, "validate-only", false, "With -render-frames: run validations only, write no PNGs")
 	flag.Parse()
 
 	// Load configuration
@@ -163,6 +167,14 @@ func main() {
 			"height":       float64(height),
 			"data":         chartData,
 			"data_format":  dataFormat,
+		})
+		return
+	}
+
+	if renderFrames != "" {
+		runTerminalCommand(ctx, h, "render_frames", map[string]interface{}{
+			"spec_file":     renderFrames,
+			"validate_only": validateOnly,
 		})
 		return
 	}

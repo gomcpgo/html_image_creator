@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+
 	"html_image_creator/pkg/config"
+	"html_image_creator/pkg/frames"
 	"html_image_creator/pkg/post"
 	"html_image_creator/pkg/storage"
 
@@ -57,6 +60,8 @@ func (h *Handler) CallTool(ctx context.Context, req *protocol.CallToolRequest) (
 		return h.handleListImagePosts(ctx, req.Arguments)
 	case "export_image":
 		return h.handleExportImage(ctx, req.Arguments)
+	case "render_frames":
+		return h.handleRenderFrames(ctx, req.Arguments)
 	case "add_media":
 		return h.handleAddMedia(ctx, req.Arguments)
 	case "create_chart":
@@ -244,6 +249,33 @@ func (h *Handler) handleExportImage(ctx context.Context, args map[string]interfa
 	}
 
 	return h.successResponse(result), nil
+}
+
+func (h *Handler) handleRenderFrames(ctx context.Context, args map[string]interface{}) (*protocol.CallToolResponse, error) {
+	specFile, ok := args["spec_file"].(string)
+	if !ok || specFile == "" {
+		return nil, fmt.Errorf("spec_file is required and must be a string")
+	}
+	validateOnly, _ := args["validate_only"].(bool)
+
+	data, err := os.ReadFile(specFile)
+	if err != nil {
+		return h.errorResponse(fmt.Sprintf("Failed to read spec file: %v", err)), nil
+	}
+	var spec frames.Spec
+	if err := json.Unmarshal(data, &spec); err != nil {
+		return h.errorResponse(fmt.Sprintf("Failed to parse spec file: %v", err)), nil
+	}
+
+	report, err := frames.Run(&spec, validateOnly)
+	if err != nil {
+		return h.errorResponse(fmt.Sprintf("Failed to render frames: %v", err)), nil
+	}
+
+	jsonData, _ := json.MarshalIndent(report, "", "  ")
+	return &protocol.CallToolResponse{
+		Content: []protocol.ToolContent{{Type: "text", Text: string(jsonData)}},
+	}, nil
 }
 
 func (h *Handler) handleAddMedia(ctx context.Context, args map[string]interface{}) (*protocol.CallToolResponse, error) {
