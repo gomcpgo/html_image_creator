@@ -1,12 +1,18 @@
 package frames
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+)
 
 // Spec is the render_frames spec file format (see docs/render-frames-spec.md).
 type Spec struct {
-	Width       int      `json:"width"`
-	Height      int      `json:"height"`
-	OutputDir   string   `json:"output_dir"`
+	Width     int    `json:"width"`
+	Height    int    `json:"height"`
+	OutputDir string `json:"output_dir"`
+	// AssetDir, when set, is served read-only as the page's web root, so scene
+	// HTML can reference images/CSS/fonts by relative path. Optional.
+	AssetDir    string   `json:"asset_dir"`
 	Scenes      []Scene  `json:"scenes"`
 	Validations []Rule   `json:"validations"`
 	ReportBoxes []string `json:"report_boxes"`
@@ -40,17 +46,19 @@ type Rule struct {
 
 // Elem is one element's measurement in one frame, as returned by the in-page JS.
 type Elem struct {
-	Path    string     `json:"path"`
-	Parent  string     `json:"parent"`
-	Rect    [4]float64 `json:"rect"` // layout box: x, y, w, h in CSS px
+	Path   string     `json:"path"`
+	Parent string     `json:"parent"`
+	Rect   [4]float64 `json:"rect"` // layout box: x, y, w, h in CSS px
 	// Ink is the visual footprint. For elements with a background/border (and
 	// all SVG elements) it equals Rect; for bare text it is the union of the
 	// text line boxes — a centered headline's layout box spans its whole band,
 	// its ink does not. Nil means "use Rect".
-	Ink     *[4]float64 `json:"ink,omitempty"`
-	Touched bool        `json:"touched"`
-	Sels    []int       `json:"sels"` // indices into the selector table
-	Lines   int         `json:"lines"`
+	Ink *[4]float64 `json:"ink,omitempty"`
+	// Broken is the src of an <img> the browser failed to load; empty otherwise.
+	Broken  string `json:"broken,omitempty"`
+	Touched bool   `json:"touched"`
+	Sels    []int  `json:"sels"` // indices into the selector table
+	Lines   int    `json:"lines"`
 }
 
 // VBox is the element's visual footprint, used by geometric rules.
@@ -93,10 +101,10 @@ type Report struct {
 		Frames     int `json:"frames"`
 		Violations int `json:"violations"`
 	} `json:"totals"`
-	Scenes         []SceneResult                       `json:"scenes,omitempty"`
-	CoverageErrors []string                            `json:"coverage_errors,omitempty"`
-	Boxes          map[string]map[string][][4]float64  `json:"boxes,omitempty"`
-	Error          string                              `json:"error,omitempty"`
+	Scenes         []SceneResult                      `json:"scenes,omitempty"`
+	CoverageErrors []string                           `json:"coverage_errors,omitempty"`
+	Boxes          map[string]map[string][][4]float64 `json:"boxes,omitempty"`
+	Error          string                             `json:"error,omitempty"`
 }
 
 // ValidateSpec checks structural validity before any rendering.
@@ -109,6 +117,15 @@ func ValidateSpec(spec *Spec, validateOnly bool) error {
 	}
 	if len(spec.Scenes) == 0 {
 		return fmt.Errorf("scenes must not be empty")
+	}
+	if spec.AssetDir != "" {
+		fi, err := os.Stat(spec.AssetDir)
+		if err != nil {
+			return fmt.Errorf("asset_dir %q: %v", spec.AssetDir, err)
+		}
+		if !fi.IsDir() {
+			return fmt.Errorf("asset_dir %q is not a directory", spec.AssetDir)
+		}
 	}
 	names := map[string]bool{}
 	for si, sc := range spec.Scenes {

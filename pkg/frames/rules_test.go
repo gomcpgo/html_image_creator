@@ -1,6 +1,7 @@
 package frames
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -75,7 +76,7 @@ func TestNoOverlapTouchingBoxesPass(t *testing.T) {
 	table := BuildSelTable(spec)
 	frames := [][]Elem{{
 		el("#a", "body", 0, 0, 100, 100, false, 0),
-		el("#b", "body", 100, 0, 100, 100, false, 0), // edge-adjacent, no intersection
+		el("#b", "body", 100, 0, 100, 100, false, 0),  // edge-adjacent, no intersection
 		el("#c", "body", 0, 99.5, 100, 100, false, 0), // 0.5px graze: within threshold
 	}}
 	rep := Evaluate(spec, table, []SceneFrames{{Name: "s", Frames: frames}})
@@ -212,6 +213,30 @@ func TestReportBoxes(t *testing.T) {
 	}
 }
 
+func TestLineSelIdxIsNeverNil(t *testing.T) {
+	// A nil slice marshals to JSON null, and the in-page JS calls .includes on it.
+	spec := specWith(Rule{Type: "in_canvas", Selectors: []string{"#a"}})
+	if idx := BuildSelTable(spec).LineSelIdx(spec); idx == nil {
+		t.Fatal("LineSelIdx returned nil for a spec with no max_lines rule")
+	}
+}
+
+func TestBrokenImage(t *testing.T) {
+	spec := specWith()
+	table := BuildSelTable(spec)
+	img := el("#logo", "body", 10, 10, 24, 24, false)
+	img.Broken = "receipts/missing.jpg"
+	frames := [][]Elem{{img, el("#ok", "body", 0, 0, 100, 100, false)}}
+	rep := Evaluate(spec, table, []SceneFrames{{Name: "s", Frames: frames}})
+	vs := violationsOf(rep, "broken_image")
+	if len(vs) != 1 || vs[0].Elements[0] != "#logo" || !strings.Contains(vs[0].Detail, "receipts/missing.jpg") {
+		t.Fatalf("got %+v", vs)
+	}
+	if rep.Status != "violations_found" {
+		t.Fatalf("broken image did not fail the run: %s", rep.Status)
+	}
+}
+
 func TestValidateSpec(t *testing.T) {
 	good := &Spec{Width: 1920, Height: 1080, OutputDir: "/tmp/x",
 		Scenes: []Scene{{Name: "s01", BaseHTML: "<div/>",
@@ -236,5 +261,15 @@ func TestValidateSpec(t *testing.T) {
 	}
 	if err := ValidateSpec(&noOut, true); err != nil {
 		t.Fatalf("validate_only should not need output_dir: %v", err)
+	}
+	noAssets := *good
+	noAssets.AssetDir = filepath.Join(t.TempDir(), "nope")
+	if err := ValidateSpec(&noAssets, false); err == nil {
+		t.Fatal("missing asset_dir accepted")
+	}
+	withAssets := *good
+	withAssets.AssetDir = t.TempDir()
+	if err := ValidateSpec(&withAssets, false); err != nil {
+		t.Fatalf("existing asset_dir rejected: %v", err)
 	}
 }

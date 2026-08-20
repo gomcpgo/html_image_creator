@@ -17,8 +17,9 @@ import (
 )
 
 // measureJS is evaluated once per frame: applies the delta's ops, waits for
-// fonts, then measures every element (identity path, parent, rect, which
-// rule selectors it matches, line count for max_lines targets).
+// fonts and images, then measures every element (identity path, parent, rect,
+// which rule selectors it matches, whether an image failed to load, line count
+// for max_lines targets).
 const measureJS = `async (ops, selectors, lineSelIdx) => {
 	const touched = new Set();
 	const markTree = (el) => {
@@ -45,6 +46,19 @@ const measureJS = `async (ops, selectors, lineSelIdx) => {
 	}
 	void document.body.offsetHeight; // force layout so new font loads start
 	await document.fonts.ready;
+	// Images inserted by a delta have not loaded yet, and an <img> without
+	// explicit dimensions measures 0x0 until it does. Capped so one stalled
+	// request cannot hang the run.
+	const pending = Array.from(document.images).filter(im => !im.complete);
+	if (pending.length) {
+		await Promise.race([
+			Promise.all(pending.map(im => new Promise(res => {
+				im.addEventListener('load', res, { once: true });
+				im.addEventListener('error', res, { once: true });
+			}))),
+			new Promise(res => setTimeout(res, 10000)),
+		]);
+	}
 	const paths = new Map();
 	const pathOf = (el) => {
 		if (!el || el.nodeType !== 1) return '';
@@ -94,8 +108,13 @@ const measureJS = `async (ops, selectors, lineSelIdx) => {
 				ink = any ? [x1, y1, x2 - x1, y2 - y1] : [r.x, r.y, 0, 0];
 			}
 		}
+		// A broken image reports a broken-icon box, nothing like the intended
+		// one — a defect the geometric rules cannot see.
+		let broken = '';
+		if (el instanceof HTMLImageElement && (!el.complete || el.naturalWidth === 0))
+			broken = (el.getAttribute('src') || '(no src)').slice(0, 120);
 		let lines = 0;
-		if (sels.some(i => lineSelIdx.includes(i))) {
+		if (lineSelIdx && sels.some(i => lineSelIdx.includes(i))) {
 			const range = document.createRange();
 			range.selectNodeContents(el);
 			const tops = [];
@@ -106,10 +125,14 @@ const measureJS = `async (ops, selectors, lineSelIdx) => {
 			lines = tops.length;
 		}
 		out.push({ path: pathOf(el), parent: pathOf(el.parentElement),
-			rect: [r.x, r.y, r.width, r.height], ink, touched: touched.has(el), sels, lines });
+			rect: [r.x, r.y, r.width, r.height], ink, broken, touched: touched.has(el), sels, lines });
 	}
 	return { elements: out };
 }`
+
+// frameHTMLName is where the generated scene HTML is served, at the web root
+// alongside the asset files; unlikely to collide with a real asset.
+const frameHTMLName = "__frame__.html"
 
 type evalResult struct {
 	OpError  string `json:"opError"`
@@ -168,27 +191,28 @@ func renderScene(browser *rod.Browser, spec *Spec, scene *Scene, table *SelTable
 	lineSelIdx []int, validateOnly bool) (SceneFrames, string, error) {
 	sf := SceneFrames{Name: scene.Name}
 
-	dir, err := os.MkdirTemp("", "render_frames-*")
-	if err != nil {
-		return sf, "", fmt.Errorf("failed to create temp dir: %w", err)
-	}
-	defer os.RemoveAll(dir)
-
 	html := injectCSSReset(scene.BaseHTML)
-	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte(html), 0644); err != nil {
-		return sf, "", fmt.Errorf("failed to write scene HTML: %w", err)
-	}
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return sf, "", fmt.Errorf("failed to start temp server: %w", err)
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
-	httpServer := &http.Server{Handler: http.FileServer(http.Dir(dir))}
+	// The scene HTML is served from memory at a reserved name, so relative asset
+	// paths resolve against asset_dir without anything being written into it.
+	mux := http.NewServeMux()
+	mux.HandleFunc("/"+frameHTMLName, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write([]byte(html))
+	})
+	if spec.AssetDir != "" {
+		mux.Handle("/", http.FileServer(http.Dir(spec.AssetDir)))
+	}
+	httpServer := &http.Server{Handler: mux}
 	go httpServer.Serve(listener)
 	defer httpServer.Close()
 
-	page, err := browser.Page(proto.TargetCreateTarget{URL: fmt.Sprintf("http://127.0.0.1:%d/index.html", port)})
+	page, err := browser.Page(proto.TargetCreateTarget{URL: fmt.Sprintf("http://127.0.0.1:%d/%s", port, frameHTMLName)})
 	if err != nil {
 		return sf, "", fmt.Errorf("failed to create page: %w", err)
 	}

@@ -35,7 +35,7 @@ type SelTable struct {
 
 // LineSelIdx returns indices of selectors whose matches need line counts.
 func (t *SelTable) LineSelIdx(spec *Spec) []int {
-	var out []int
+	out := []int{} // must marshal to [] not null: the in-page JS calls .includes on it
 	for _, r := range spec.Validations {
 		if r.Type == "max_lines" {
 			out = append(out, t.idx[r.Selector])
@@ -224,6 +224,16 @@ func frameViolations(spec *Spec, table *SelTable, els []Elem, bySel [][]*Elem,
 						fmt.Sprintf("renders %d lines, max %d (text wrapped)", e.Lines, r.Lines)})
 				}
 			}
+		}
+	}
+
+	// Implicit rule: images must load. A broken image is a layout defect the
+	// geometric rules cannot see — the broken-icon box is nothing like the
+	// intended box.
+	for _, e := range els {
+		if e.Broken != "" {
+			out = append(out, rawViolation{"broken_image", []string{e.Path},
+				fmt.Sprintf("image failed to load: %s", e.Broken)})
 		}
 	}
 

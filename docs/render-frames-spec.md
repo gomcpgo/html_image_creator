@@ -25,6 +25,7 @@ Terminal mode: `bin/html_image_creator -render-frames <spec_file> [-validate-onl
   "width": 1920,
   "height": 1080,
   "output_dir": "/abs/path/frames",     // required unless validate_only
+  "asset_dir": "/abs/path/assets",      // optional: served as the page's web root
   "scenes": [
     {
       "name": "scene06",                // PNG prefix: scene06-frame01.png …
@@ -49,6 +50,35 @@ delta 1 → measure/screenshot → … Elements therefore keep pixel-identical
 positions across frames unless an op moves them, and the engine verifies that
 (see implicit rules).
 
+## Assets (images, CSS, fonts)
+
+Each scene is served over a throwaway `http://127.0.0.1:<port>` server. The
+generated HTML is served from memory at `/__frame__.html`; when `asset_dir` is
+set, that directory is served read-only as the rest of the web root. So a scene
+addresses assets by **path relative to `asset_dir`**:
+
+```html
+<link rel="stylesheet" href="frames.css">   <!-- <asset_dir>/frames.css -->
+<img src="receipts/receipt-01.jpg">         <!-- <asset_dir>/receipts/receipt-01.jpg -->
+```
+
+Nothing is copied and nothing is written into `asset_dir` — the tool only reads
+it. One root per spec, shared by every scene. A missing or non-directory
+`asset_dir` is a `spec_error`.
+
+Sharing a stylesheet this way is usually the bigger win: scene HTML shrinks to
+structure, and the CSS stops being duplicated (and JSON-escaped) into every
+scene.
+
+Without `asset_dir` there is no web root, so **only `data:` URIs resolve** —
+`file://` URLs and absolute filesystem paths do not, and never will (the page
+origin is http, not file). Data URIs keep working whether or not `asset_dir`
+is set.
+
+Layout is measured after `document.fonts.ready` **and** after every `<img>`
+has finished loading (10s cap), so an image inserted by a delta is measured at
+its real size rather than 0×0.
+
 ## Delta ops
 
 Grounded in what `gen_frames.py` (video 04) actually does — nothing more.
@@ -71,8 +101,8 @@ container elements to append into (e.g. `<div id="ann">`, `<g id="layer-mid">`)
 ## Validation rules
 
 `validations` is an array of rule objects, applied to **every frame of every
-scene**. All coordinates are CSS px (canvas space), measured after
-`document.fonts.ready`.
+scene**. All coordinates are CSS px (canvas space), measured after fonts and
+images have loaded (see Assets).
 
 **Visual boxes, not layout boxes.** Geometric rules use each element's visual
 footprint: for painted elements (background, border, box-shadow — and all SVG
@@ -96,7 +126,12 @@ leading that overstates vertical ink by single-digit px.
    consecutive frames without being matched by that delta's ops (or being a
    descendant/new child of a target) is a violation. Catches reflow, drift, and
    phantom-blank-line bugs structurally, with no rule authoring.
-2. **Rule coverage.** A validation rule whose selectors match zero elements
+2. **Images must load.** An `<img>` the browser failed to fetch is reported as
+   a `broken_image` violation naming its `src`. Geometric rules cannot catch
+   this — a broken-icon box is nothing like the intended box — so a run with a
+   missing image reports `violations_found` instead of silently exporting PNGs
+   with holes in them.
+3. **Rule coverage.** A validation rule whose selectors match zero elements
    across the entire run fails the run (`coverage_error`) — a checker that
    watches nothing must not pass. (Zero matches in an individual frame is fine;
    annotations come and go.)

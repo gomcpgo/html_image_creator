@@ -169,7 +169,7 @@ func (h *Handler) GetTools() []protocol.Tool {
 				"properties": {
 					"spec_file": {
 						"type": "string",
-						"description": "Absolute path to the spec JSON file (scenes, deltas, validations, output_dir)"
+						"description": "Absolute path to the spec JSON file (scenes, deltas, validations, output_dir, optional asset_dir served as the web root for images/CSS/fonts)"
 					},
 					"validate_only": {
 						"type": "boolean",
