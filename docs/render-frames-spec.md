@@ -8,15 +8,19 @@ rules, and exports PNGs. Built for the video-frame pipeline in
 ## Tool contract
 
 ```
-render_frames(spec_file, validate_only?)
+render_frames(spec_file, validate_only?, export_scenes?, export_frames?)
 ```
 
 - `spec_file` (string, required) — absolute path to a spec JSON file (below).
 - `validate_only` (bool, default false) — apply deltas and run validations but
   write no PNGs. Sub-second per scene; this is the design-phase audit gate.
   With `false`, the same run also screenshots every frame (build-phase export).
+- `export_scenes` (array of strings, optional) - scene names whose frames should be written as PNGs, e.g. `["scene03"]`.
+- `export_frames` (array of strings, optional) - individual frames to write, named `<scene>-frameNN`, e.g. `["scene14-frame08"]`.
 
-Terminal mode: `bin/html_image_creator -render-frames <spec_file> [-validate-only]`.
+**Partial re-export.** The two filter fields narrow which PNGs are written (union of both; absent = export everything). **Validation always runs over the FULL spec** - a narrowed export never narrows the gate, so a filtered run still reports violations from unfiltered scenes. A filter entry that matches no scene or frame in the spec is a `spec_error` naming the entry (a filter that selects nothing is a typo, same philosophy as rule coverage). With `validate_only: true` the filters are ignored (nothing is exported anyway); that is not an error. The report's `totals` distinguish `frames` (validated, always the full spec) from `exported`, so a build log can never claim a full export that did not happen.
+
+Terminal mode: `bin/html_image_creator -render-frames <spec_file> [-validate-only] [-export-scenes scene02,scene05] [-export-frames scene01-frame02]`.
 
 ## Spec file format
 
@@ -116,9 +120,21 @@ leading that overstates vertical ink by single-digit px.
 | type         | fields                                   | violation when                                                        |
 |--------------|------------------------------------------|-----------------------------------------------------------------------|
 | `in_canvas`  | `selectors: [..]`                        | any matched element's visual box extends past the canvas (0.5px tolerance) |
-| `no_overlap` | `among: [..]`, `allow: [[selA, selB]..]` | two matched elements' visual boxes intersect past the threshold and the pair matches no `allow` entry |
+| `no_overlap` | `among: [..]`, `obstacles: [..]`, `allow: [[selA, selB]..]` | two `among` elements' visual boxes intersect past the threshold, or an `among` element intersects an `obstacles` element, and the pair matches no `allow` entry |
 | `keep_out`   | `selector`, `zones: [..]`                | a matched element's visual box intrudes into any zone element's box past the threshold |
 | `max_lines`  | `selector`, `lines: N`                   | the element's text renders more line boxes than `lines` (wrap/orphan) |
+
+### no_overlap obstacles
+
+`obstacles` (optional) lists the template's own static elements - map nodes, roads, edge-weight tags, chart cells - that annotations must avoid:
+
+```json
+{"type": "no_overlap", "among": [".tag", ".kalam"], "obstacles": ["#nodes circle", ".ewtag", ".cell"], "allow": [[".tag", ".ewtag"]]}
+```
+
+Every `among` element is checked against every `obstacles` element. Obstacle-vs-obstacle pairs are NOT checked (the template's own layout is by design). Violations report with the plain `no_overlap` type and name both element paths, exactly like among-pairs; `allow` pairs apply to annotation-vs-obstacle pairs the same way (and the same discipline holds: an allow pair must be proven to fire on nothing before it stays in a spec). Rule coverage applies: an `obstacles` selector that matches nothing across the run is a coverage error, same as `among`. An annotation nested inside an obstacle (e.g. appended into an obstacle container) is exempt from that pair, same as the existing ancestor skip.
+
+**SVG obstacles work directly.** SVG children (`circle`, `rect`, `line`, `path`, ...) are measured with `getBoundingClientRect` like any other element, so a selector such as `#nodes circle` is a valid obstacle with no proxy divs needed. The box is the geometry's bounding box after transforms; stroke width is not included, which is a good match for node dots and rings. (This also means the older "SVG is invisible to `no_overlap`" lesson no longer holds for this engine.)
 
 ### Implicit rules (always on)
 
@@ -141,7 +157,9 @@ leading that overstates vertical ink by single-digit px.
 ```jsonc
 {
   "status": "succeeded" | "violations_found" | "spec_error",
-  "totals": { "scenes": 14, "frames": 85, "violations": 3 },
+  "totals": { "scenes": 14, "frames": 85, "exported": 85, "violations": 3 },
+                             // frames = validated (always the full spec);
+                             // exported < frames on a filtered or validate_only run
   "scenes": [
     {
       "name": "scene06",

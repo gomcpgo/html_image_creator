@@ -71,6 +71,62 @@ func TestNoOverlapWithAllowAndAncestor(t *testing.T) {
 	}
 }
 
+func TestNoOverlapObstacles(t *testing.T) {
+	// sel: .tag (among), .node + .ewtag (obstacles), allow .tag vs .ewtag
+	spec := specWith(Rule{Type: "no_overlap", Among: []string{".tag"},
+		Obstacles: []string{".node", ".ewtag"},
+		Allow:     [][]string{{".tag", ".ewtag"}}})
+	table := BuildSelTable(spec)
+	iTag, iNode, iEw := table.idx[".tag"], table.idx[".node"], table.idx[".ewtag"]
+
+	frames := [][]Elem{{
+		el("#start", "body", 180, 180, 80, 40, false, iTag),  // on nodeA -> violation
+		el("#clear", "body", 500, 700, 80, 40, false, iTag),  // clear of everything
+		el("#weight", "body", 605, 405, 40, 20, false, iTag), // on ewtag -> allowed
+		el("#nodeA", "#map", 170, 170, 60, 60, false, iNode),
+		el("#nodeB", "#map", 140, 120, 60, 60, false, iNode), // overlaps #nodeA only: not checked
+		el("#ew1", "#map", 600, 400, 50, 30, false, iEw),
+	}}
+	rep := Evaluate(spec, table, []SceneFrames{{Name: "s", Frames: frames}})
+	vs := violationsOf(rep, "no_overlap")
+	if len(vs) != 1 {
+		t.Fatalf("expected 1 violation (start-nodeA), got %+v", vs)
+	}
+	if vs[0].Elements[0] != "#nodeA" || vs[0].Elements[1] != "#start" {
+		t.Fatalf("unexpected pair %+v", vs[0].Elements)
+	}
+	if len(rep.CoverageErrors) != 0 {
+		t.Fatalf("unexpected coverage errors: %+v", rep.CoverageErrors)
+	}
+}
+
+func TestNoOverlapObstacleAncestorSkip(t *testing.T) {
+	// An annotation appended inside an obstacle container must not collide with it.
+	spec := specWith(Rule{Type: "no_overlap", Among: []string{".tag"},
+		Obstacles: []string{".zone"}})
+	table := BuildSelTable(spec)
+	iTag, iZone := table.idx[".tag"], table.idx[".zone"]
+	frames := [][]Elem{{
+		el("#zone", "body", 0, 0, 500, 500, false, iZone),
+		el("#inside", "#zone", 10, 10, 80, 40, false, iTag),
+	}}
+	rep := Evaluate(spec, table, []SceneFrames{{Name: "s", Frames: frames}})
+	if vs := violationsOf(rep, "no_overlap"); len(vs) != 0 {
+		t.Fatalf("child vs ancestor obstacle flagged: %+v", vs)
+	}
+}
+
+func TestDeadObstacleSelectorIsCoverageError(t *testing.T) {
+	spec := specWith(Rule{Type: "no_overlap", Among: []string{".tag"},
+		Obstacles: []string{".typo-never-matches"}})
+	table := BuildSelTable(spec)
+	frames := [][]Elem{{el("#a", "body", 0, 0, 10, 10, false, table.idx[".tag"])}}
+	rep := Evaluate(spec, table, []SceneFrames{{Name: "s", Frames: frames}})
+	if len(rep.CoverageErrors) != 1 || rep.Status != "violations_found" {
+		t.Fatalf("got %+v status %s", rep.CoverageErrors, rep.Status)
+	}
+}
+
 func TestNoOverlapTouchingBoxesPass(t *testing.T) {
 	spec := specWith(Rule{Type: "no_overlap", Among: []string{".ann"}})
 	table := BuildSelTable(spec)
@@ -234,6 +290,56 @@ func TestBrokenImage(t *testing.T) {
 	}
 	if rep.Status != "violations_found" {
 		t.Fatalf("broken image did not fail the run: %s", rep.Status)
+	}
+}
+
+func TestResolveExportFilter(t *testing.T) {
+	spec := &Spec{Scenes: []Scene{
+		{Name: "scene01", BaseHTML: "x", Deltas: [][]Op{{{Op: "remove", Selector: "#a"}}, {{Op: "remove", Selector: "#b"}}}}, // 3 frames
+		{Name: "scene02", BaseHTML: "x"}, // 1 frame
+	}}
+
+	if f, err := resolveExportFilter(spec, nil, nil); err != nil || f != nil {
+		t.Fatalf("no filters should resolve to nil, got %v %v", f, err)
+	}
+
+	f, err := resolveExportFilter(spec, []string{"scene02"}, []string{"scene01-frame03"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !f["scene02"][1] || !f["scene01"][3] || len(f["scene01"]) != 1 {
+		t.Fatalf("bad filter %v", f)
+	}
+
+	for _, bad := range [][2][]string{
+		{{"scene99"}, nil},         // unknown scene
+		{nil, {"scene99-frame01"}}, // unknown scene in frame entry
+		{nil, {"scene01-frame04"}}, // frame out of range
+		{nil, {"scene01"}},         // not <scene>-frameNN
+		{nil, {"scene01-frameXY"}}, // non-numeric frame
+	} {
+		if _, err := resolveExportFilter(spec, bad[0], bad[1]); err == nil {
+			t.Fatalf("filter %v accepted", bad)
+		}
+	}
+
+	// A dead entry must name itself in the error.
+	_, err = resolveExportFilter(spec, []string{"scene99"}, nil)
+	if err == nil || !strings.Contains(err.Error(), "scene99") {
+		t.Fatalf("error does not name the entry: %v", err)
+	}
+}
+
+func TestTotalsExported(t *testing.T) {
+	spec := specWith()
+	table := BuildSelTable(spec)
+	scenes := []SceneFrames{
+		{Name: "s1", Frames: [][]Elem{{el("#a", "body", 0, 0, 10, 10, false)}, {el("#a", "body", 0, 0, 10, 10, true)}}, Exported: 1},
+		{Name: "s2", Frames: [][]Elem{{el("#b", "body", 0, 0, 10, 10, false)}}, Exported: 0},
+	}
+	rep := Evaluate(spec, table, scenes)
+	if rep.Totals.Frames != 3 || rep.Totals.Exported != 1 {
+		t.Fatalf("totals %+v", rep.Totals)
 	}
 }
 

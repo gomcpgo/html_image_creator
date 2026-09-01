@@ -174,6 +174,16 @@ func (h *Handler) GetTools() []protocol.Tool {
 					"validate_only": {
 						"type": "boolean",
 						"description": "If true, apply deltas and run validations but write no PNGs (default false)"
+					},
+					"export_scenes": {
+						"type": "array",
+						"items": {"type": "string"},
+						"description": "Scene names whose frames should be written as PNGs (e.g. [\"scene03\"]). Validation still runs over the FULL spec; only PNG writing is narrowed. Absent = export everything."
+					},
+					"export_frames": {
+						"type": "array",
+						"items": {"type": "string"},
+						"description": "Individual frames to write as PNGs, named <scene>-frameNN (e.g. [\"scene14-frame08\"]). Union with export_scenes. An entry matching nothing is an error."
 					}
 				},
 				"required": ["spec_file"]

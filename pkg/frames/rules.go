@@ -64,6 +64,9 @@ func BuildSelTable(spec *Spec) *SelTable {
 		for _, s := range r.Among {
 			add(s, true)
 		}
+		for _, s := range r.Obstacles {
+			add(s, true)
+		}
 		for _, p := range r.Allow {
 			add(p[0], false)
 			add(p[1], false)
@@ -117,6 +120,7 @@ func Evaluate(spec *Spec, table *SelTable, scenes []SceneFrames) *Report {
 		rep.Totals.Violations += len(sr.Violations)
 		rep.Scenes = append(rep.Scenes, sr)
 		rep.Totals.Frames += len(sf.Frames)
+		rep.Totals.Exported += sf.Exported
 	}
 	rep.Totals.Scenes = len(scenes)
 
@@ -191,6 +195,25 @@ func frameViolations(spec *Spec, table *SelTable, els []Elem, bySel [][]*Elem,
 				for j := i + 1; j < len(members); j++ {
 					a, b := members[i], members[j]
 					if isAncestor(parents, a.Path, b.Path) || isAncestor(parents, b.Path, a.Path) {
+						continue
+					}
+					if pairAllowed(a, b, r.Allow, table) {
+						continue
+					}
+					if w, h, x, y := intersect(a.VBox(), b.VBox()); w > pairMin(a, b) && h > pairMin(a, b) {
+						out = append(out, rawViolation{"no_overlap",
+							sortedPair(a.Path, b.Path),
+							fmt.Sprintf("boxes overlap %.0fx%.0fpx at (%.0f,%.0f)", w, h, x, y)})
+					}
+				}
+			}
+			// Obstacles: static template elements the among members must avoid.
+			// Obstacle-vs-obstacle pairs are never formed; the template's own
+			// layout is by design.
+			obstacles := dedupeByPath(collect(bySel, table, r.Obstacles))
+			for _, a := range members {
+				for _, b := range obstacles {
+					if a.Path == b.Path || isAncestor(parents, a.Path, b.Path) || isAncestor(parents, b.Path, a.Path) {
 						continue
 					}
 					if pairAllowed(a, b, r.Allow, table) {

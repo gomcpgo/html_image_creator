@@ -257,6 +257,8 @@ func (h *Handler) handleRenderFrames(ctx context.Context, args map[string]interf
 		return nil, fmt.Errorf("spec_file is required and must be a string")
 	}
 	validateOnly, _ := args["validate_only"].(bool)
+	exportScenes := stringList(args["export_scenes"])
+	exportFrames := stringList(args["export_frames"])
 
 	data, err := os.ReadFile(specFile)
 	if err != nil {
@@ -267,7 +269,7 @@ func (h *Handler) handleRenderFrames(ctx context.Context, args map[string]interf
 		return h.errorResponse(fmt.Sprintf("Failed to parse spec file: %v", err)), nil
 	}
 
-	report, err := frames.Run(&spec, validateOnly)
+	report, err := frames.Run(&spec, validateOnly, exportScenes, exportFrames)
 	if err != nil {
 		return h.errorResponse(fmt.Sprintf("Failed to render frames: %v", err)), nil
 	}
@@ -276,6 +278,21 @@ func (h *Handler) handleRenderFrames(ctx context.Context, args map[string]interf
 	return &protocol.CallToolResponse{
 		Content: []protocol.ToolContent{{Type: "text", Text: string(jsonData)}},
 	}, nil
+}
+
+// stringList converts a JSON array argument to []string, dropping non-strings.
+func stringList(v interface{}) []string {
+	items, ok := v.([]interface{})
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(items))
+	for _, it := range items {
+		if s, ok := it.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func (h *Handler) handleAddMedia(ctx context.Context, args map[string]interface{}) (*protocol.CallToolResponse, error) {

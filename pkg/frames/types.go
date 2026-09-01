@@ -38,6 +38,7 @@ type Rule struct {
 	Type      string     `json:"type"`                // in_canvas | no_overlap | keep_out | max_lines
 	Selectors []string   `json:"selectors,omitempty"` // in_canvas
 	Among     []string   `json:"among,omitempty"`     // no_overlap
+	Obstacles []string   `json:"obstacles,omitempty"` // no_overlap: static elements checked against among, not each other
 	Allow     [][]string `json:"allow,omitempty"`     // no_overlap: pairs of selectors
 	Selector  string     `json:"selector,omitempty"`  // keep_out, max_lines
 	Zones     []string   `json:"zones,omitempty"`     // keep_out
@@ -98,7 +99,8 @@ type Report struct {
 	Status string `json:"status"` // succeeded | violations_found | spec_error
 	Totals struct {
 		Scenes     int `json:"scenes"`
-		Frames     int `json:"frames"`
+		Frames     int `json:"frames"` // frames validated (always the full spec)
+		Exported   int `json:"exported"`
 		Violations int `json:"violations"`
 	} `json:"totals"`
 	Scenes         []SceneResult                      `json:"scenes,omitempty"`

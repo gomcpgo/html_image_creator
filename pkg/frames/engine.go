@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -140,11 +141,21 @@ type evalResult struct {
 }
 
 // Run renders every scene in the spec, evaluates validations, and (unless
-// validateOnly) exports PNGs. Spec/content problems come back as a Report
-// with status spec_error; only infrastructure failures return a Go error.
-func Run(spec *Spec, validateOnly bool) (*Report, error) {
+// validateOnly) exports PNGs. exportScenes/exportFrames narrow which PNGs are
+// written (union; empty = all); validation always runs over the full spec.
+// Spec/content problems come back as a Report with status spec_error; only
+// infrastructure failures return a Go error.
+func Run(spec *Spec, validateOnly bool, exportScenes, exportFrames []string) (*Report, error) {
 	if err := ValidateSpec(spec, validateOnly); err != nil {
 		return specErrorReport(err), nil
+	}
+	var filter map[string]map[int]bool
+	if !validateOnly { // with validateOnly nothing is exported anyway; filters are ignored
+		var err error
+		filter, err = resolveExportFilter(spec, exportScenes, exportFrames)
+		if err != nil {
+			return specErrorReport(err), nil
+		}
 	}
 	if !validateOnly {
 		if err := os.MkdirAll(spec.OutputDir, 0755); err != nil {
@@ -172,7 +183,14 @@ func Run(spec *Spec, validateOnly bool) (*Report, error) {
 
 	var collected []SceneFrames
 	for i := range spec.Scenes {
-		sf, serr, err := renderScene(browser, spec, &spec.Scenes[i], table, lineSelIdx, validateOnly)
+		var export map[int]bool // nil = export all frames
+		if filter != nil {
+			export = filter[spec.Scenes[i].Name]
+			if export == nil {
+				export = map[int]bool{} // filtered run, scene not selected
+			}
+		}
+		sf, serr, err := renderScene(browser, spec, &spec.Scenes[i], table, lineSelIdx, validateOnly, export)
 		if err != nil {
 			return nil, err
 		}
@@ -186,9 +204,59 @@ func Run(spec *Spec, validateOnly bool) (*Report, error) {
 	return rep, nil
 }
 
-// renderScene runs one scene in one page. Returns (measurements, specError, infraError).
+// resolveExportFilter turns export_scenes / export_frames entries into a
+// per-scene set of frame numbers to write. A nil result means no filtering
+// (export everything). An entry matching no scene or frame is an error: a
+// filter that selects nothing is a typo, same philosophy as rule coverage.
+func resolveExportFilter(spec *Spec, exportScenes, exportFrames []string) (map[string]map[int]bool, error) {
+	if len(exportScenes) == 0 && len(exportFrames) == 0 {
+		return nil, nil
+	}
+	totalFrames := map[string]int{}
+	for _, sc := range spec.Scenes {
+		totalFrames[sc.Name] = len(sc.Deltas) + 1
+	}
+	filter := map[string]map[int]bool{}
+	for _, name := range exportScenes {
+		total, ok := totalFrames[name]
+		if !ok {
+			return nil, fmt.Errorf("export_scenes entry %q matches no scene in the spec", name)
+		}
+		frames := map[int]bool{}
+		for f := 1; f <= total; f++ {
+			frames[f] = true
+		}
+		filter[name] = frames
+	}
+	for _, entry := range exportFrames {
+		i := strings.LastIndex(entry, "-frame")
+		if i <= 0 {
+			return nil, fmt.Errorf("export_frames entry %q is not of the form <scene>-frameNN", entry)
+		}
+		name := entry[:i]
+		f, err := strconv.Atoi(entry[i+len("-frame"):])
+		if err != nil || f <= 0 {
+			return nil, fmt.Errorf("export_frames entry %q is not of the form <scene>-frameNN", entry)
+		}
+		total, ok := totalFrames[name]
+		if !ok {
+			return nil, fmt.Errorf("export_frames entry %q matches no scene in the spec", entry)
+		}
+		if f > total {
+			return nil, fmt.Errorf("export_frames entry %q: scene %q has %d frames", entry, name, total)
+		}
+		if filter[name] == nil {
+			filter[name] = map[int]bool{}
+		}
+		filter[name][f] = true
+	}
+	return filter, nil
+}
+
+// renderScene runs one scene in one page. export is the set of frame numbers
+// to write as PNGs; nil means all. Returns (measurements, specError, infraError).
 func renderScene(browser *rod.Browser, spec *Spec, scene *Scene, table *SelTable,
-	lineSelIdx []int, validateOnly bool) (SceneFrames, string, error) {
+	lineSelIdx []int, validateOnly bool, export map[int]bool) (SceneFrames, string, error) {
 	sf := SceneFrames{Name: scene.Name}
 
 	html := injectCSSReset(scene.BaseHTML)
@@ -254,7 +322,7 @@ func renderScene(browser *rod.Browser, spec *Spec, scene *Scene, table *SelTable
 		}
 		sf.Frames = append(sf.Frames, er.Elements)
 
-		if !validateOnly {
+		if !validateOnly && (export == nil || export[f]) {
 			shot, err := page.Screenshot(true, &proto.PageCaptureScreenshot{
 				Format: proto.PageCaptureScreenshotFormatPng,
 				Clip: &proto.PageViewport{
