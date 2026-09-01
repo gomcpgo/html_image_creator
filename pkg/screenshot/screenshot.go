@@ -106,13 +106,6 @@ func (s *Screenshotter) TakeScreenshot(postDir string, width, height int, output
 		return fmt.Errorf("failed to load page: %w", err)
 	}
 
-	// Wait for fonts to load
-	_, err = page.Eval(`() => document.fonts.ready`)
-	if err != nil {
-		// Non-fatal: continue even if fonts.ready fails
-		fmt.Printf("Warning: fonts.ready check failed: %v\n", err)
-	}
-
 	// Wait for chart rendering signal (document.title === 'ready')
 	// After signal fires, wait 2s for Chart.js/D3 canvas animations to complete.
 	// Chart.js default animation duration is 1000ms; 2s provides safe margin.
@@ -130,6 +123,36 @@ func (s *Screenshotter) TakeScreenshot(postDir string, width, height int, output
 	})`)
 	if err != nil {
 		// Non-fatal: timeout means no chart signal, proceed with screenshot
+	}
+
+	// Settle before capture: give short post-load JS timers time to run,
+	// force a layout pass (font downloads only start once layout needs
+	// them, so fonts.ready alone can resolve before loading even begins),
+	// wait out fonts and images still in flight, then wait two animation
+	// frames so the swapped-in fonts are actually painted.
+	settlePage := page.Timeout(15 * time.Second)
+	_, err = settlePage.Eval(`() => new Promise(async (resolve) => {
+		await new Promise(r => setTimeout(r, 500));
+		document.body && document.body.getBoundingClientRect();
+		await document.fonts.ready;
+		const deadline = Date.now() + 8000;
+		while (document.fonts.status === 'loading' && Date.now() < deadline) {
+			await new Promise(r => setTimeout(r, 100));
+		}
+		const pending = Array.from(document.images).filter(im => !im.complete);
+		if (pending.length) {
+			await Promise.race([
+				Promise.all(pending.map(im => new Promise(res => {
+					im.addEventListener('load', res, { once: true });
+					im.addEventListener('error', res, { once: true });
+				}))),
+				new Promise(r => setTimeout(r, 5000)),
+			]);
+		}
+		requestAnimationFrame(() => requestAnimationFrame(resolve));
+	})`)
+	if err != nil {
+		fmt.Printf("Warning: settle wait failed: %v\n", err)
 	}
 
 	// Take screenshot of the viewport
