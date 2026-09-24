@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"log"
 	"os"
+	"strings"
 
 	"html_image_creator/pkg/config"
 	mcpHandler "html_image_creator/pkg/handler"
@@ -43,6 +44,10 @@ func main() {
 		chartData    string
 		dataFormat   string
 		setData      string
+		renderFrames string
+		validateOnly bool
+		exportScenes string
+		exportFrames string
 	)
 
 	flag.StringVar(&createPost, "create", "", "Create a new image post with the specified name")
@@ -60,6 +65,10 @@ func main() {
 	flag.StringVar(&chartData, "data", "", "Chart data (JSON or CSV string)")
 	flag.StringVar(&dataFormat, "data-format", "json", "Data format: json or csv")
 	flag.StringVar(&setData, "set-data", "", "Set chart data for post ID")
+	flag.StringVar(&renderFrames, "render-frames", "", "Render frames from a spec JSON file (see docs/render-frames-spec.md)")
+	flag.BoolVar(&validateOnly, "validate-only", false, "With -render-frames: run validations only, write no PNGs")
+	flag.StringVar(&exportScenes, "export-scenes", "", "With -render-frames: comma-separated scene names to export (validation still covers the full spec)")
+	flag.StringVar(&exportFrames, "export-frames", "", "With -render-frames: comma-separated <scene>-frameNN names to export")
 	flag.Parse()
 
 	// Load configuration
@@ -167,6 +176,21 @@ func main() {
 		return
 	}
 
+	if renderFrames != "" {
+		args := map[string]interface{}{
+			"spec_file":     renderFrames,
+			"validate_only": validateOnly,
+		}
+		if exportScenes != "" {
+			args["export_scenes"] = commaList(exportScenes)
+		}
+		if exportFrames != "" {
+			args["export_frames"] = commaList(exportFrames)
+		}
+		runTerminalCommand(ctx, h, "render_frames", args)
+		return
+	}
+
 	if setData != "" {
 		if chartData == "" {
 			log.Fatal("--data is required when setting chart data")
@@ -197,6 +221,18 @@ func main() {
 }
 
 // runTerminalCommand executes a tool command in terminal mode
+// commaList splits a comma-separated flag value into the []interface{} shape
+// CallTool expects for array arguments.
+func commaList(s string) []interface{} {
+	var out []interface{}
+	for _, part := range strings.Split(s, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
 func runTerminalCommand(ctx context.Context, h *mcpHandler.Handler, toolName string, args map[string]interface{}) {
 	req := &protocol.CallToolRequest{
 		Name:      toolName,

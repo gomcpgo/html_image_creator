@@ -162,6 +162,34 @@ func (h *Handler) GetTools() []protocol.Tool {
 			}`),
 		},
 		{
+			Name:        "render_frames",
+			Description: "Render a flipbook of frames from a spec file: per scene, a base HTML plus cumulative deltas (set_class/set_html/append_html/remove ops), rendered in one headless-Chrome page so untouched elements stay pixel-identical across frames. Runs declarative layout validations (in_canvas, no_overlap, keep_out, max_lines, plus an implicit untouched-elements-must-not-move check) against real getBoundingClientRect geometry and reports violations attributed to the frame that introduced them. Spec format: docs/render-frames-spec.md. Use validate_only for a fast layout audit without writing PNGs.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"spec_file": {
+						"type": "string",
+						"description": "Absolute path to the spec JSON file (scenes, deltas, validations, output_dir, optional asset_dir served as the web root for images/CSS/fonts)"
+					},
+					"validate_only": {
+						"type": "boolean",
+						"description": "If true, apply deltas and run validations but write no PNGs (default false)"
+					},
+					"export_scenes": {
+						"type": "array",
+						"items": {"type": "string"},
+						"description": "Scene names whose frames should be written as PNGs (e.g. [\"scene03\"]). Validation still runs over the FULL spec; only PNG writing is narrowed. Absent = export everything."
+					},
+					"export_frames": {
+						"type": "array",
+						"items": {"type": "string"},
+						"description": "Individual frames to write as PNGs, named <scene>-frameNN (e.g. [\"scene14-frame08\"]). Union with export_scenes. An entry matching nothing is an error."
+					}
+				},
+				"required": ["spec_file"]
+			}`),
+		},
+		{
 			Name:        "add_media",
 			Description: "Add an image file to a post's media folder. Copies the file and returns the relative path to use in HTML (e.g., in <img src=\"media/photo.jpg\">).",
 			InputSchema: json.RawMessage(`{

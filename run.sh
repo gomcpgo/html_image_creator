@@ -72,6 +72,18 @@ case "$command" in
         bin/html_image_creator -add-media "$1" -media-path "$2"
         ;;
 
+    render-frames)
+        if [ -z "$1" ]; then
+            echo "Usage: ./run.sh render-frames <spec_file> [--validate-only]"
+            exit 1
+        fi
+        if [ "$2" == "--validate-only" ]; then
+            bin/html_image_creator -render-frames "$1" -validate-only
+        else
+            bin/html_image_creator -render-frames "$1"
+        fi
+        ;;
+
     create-chart)
         if [ -z "$1" ] || [ -z "$2" ] || [ -z "$3" ] || [ -z "$4" ] || [ -z "$5" ]; then
             echo "Usage: ./run.sh create-chart <name> <html_content> <width> <height> <data> [data_format]"
